@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Todoist Tasks List</title>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/3.10.2/fullcalendar.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/3.10.2/fullcalendar.min.js"></script>
+</head>
+<body>
+    <div>
+        <h1>Todoist Projects</h1>
+        <ul id="projects-list">
+        </ul>
+    </div>
+    <div>
+        <h2>Selected Project Tasks</h2>
+        <ul id="tasks-list">
+        </ul>
+    </div>
+    <div>
+        <h2>Schedule Tasks</h2>
+        <label for="start-date">Choose a starting date:</label>
+        <input type="date" id="start-date" name="start-date">
+        <button id="schedule-button" disabled>Schedule Tasks</button>
+    </div>
+    <div>
+        <h2>Scheduled Tasks</h2>
+        <div id="calendar"></div>
+    </div>
+  
+    <script>
+        $(document).ready(function () {
+            let selected_project_id = null;
+            $.ajax({
+                type: "GET",
+                url: "/get_projects",
+                success: function (data) {
+                    for (var i = 0; i < data.projects.length; i++) {
+                        var project = data.projects[i];
+                        var project_link = $("<a/>").attr("href", `/get_tasks_for_project/${project.id}`).html(project.name);
+                        project_link.attr("data-id", project.id);
+                        $("#projects-list").append($("<li/>").append(project_link));
+                    }
+                    if (data.projects.length > 0) {
+                        $("#schedule-button").removeAttr("disabled");
+                    }
+                }
+            });
+          
+            $("body").on("click", "#projects-list a", function (e) {
+                e.preventDefault();
+                selected_project_id = $(this).attr("data-id");
+                $("#tasks-list").empty();
+                $.ajax({
+                    type: "GET",
+                    url: $(this).attr("href"),
+                    success: function (data) {
+                        for (var i = 0; i < data.tasks.length; i++) {
+                            var task = data.tasks[i];
+                            var task_li = $("<li/>").html(task.content + " due on " + task.due_date);
+                            if (task.label) {
+                                task_li.append(" (" + task.label + ")");
+                            }
+                            $("#tasks-list").append(task_li);
+                        }
+                    }
+                });
+            });
+
+            $("body").on("click", "#schedule-button", function (e) {
+                e.preventDefault();
+                if (selected_project_id && $("#start-date").val()) {
+                    $.ajax({
+                        type: "POST",
+                        url: "/schedule_tasks",
+                        data: {project_id: selected_project_id, start_date: $("#start-date").val()},
+                        success: function (data) {
+                            var events = data.scheduled_tasks.map(function (task) {
+                                return {
+                                    title: task.content,
+                                    start: task.start_date,
+                                    end: task.end_date,
+                                    allDay: false
+                                };
+                            });
+                            $("#calendar").fullCalendar("removeEvents");
+                            $("#calendar").fullCalendar("addEventSource", events);
+                        }
+                    });
+                }
+            });
+            
+            $("#calendar").fullCalendar({defaultView: "agendaWeek", allDaySlot: false, timezone: "local"});
+        });
+    </script>
+</body>
+</html>
