@@ -21,12 +21,18 @@
     </div>
     <div>
         <h2>Schedule Tasks</h2>
+        <div>
+          <h2>Select Labels</h2>
+          <select id="labels-select" multiple>
+          </select>
+          <button id="show-button">Show</button>
+        </div>
+
         <label for="start-date">Choose a starting date:</label>
         <input type="date" id="start-date" name="start-date">
         <button id="schedule-button" disabled>Schedule Tasks</button>
     </div>
     <div>
-        <h2>Scheduled Tasks</h2>
         <div id="calendar"></div>
     </div>
   
@@ -39,58 +45,110 @@
                 success: function (data) {
                     for (var i = 0; i < data.projects.length; i++) {
                         var project = data.projects[i];
-                        var project_link = $("<a/>").attr("href", `/get_tasks_for_project/${project.id}`).html(project.name);
-                        project_link.attr("data-id", project.id);
-                        $("#projects-list").append($("<li/>").append(project_link));
+                        var checkbox = $("<input>")
+                            .attr("type", "checkbox")
+                            .attr("data-id", project.id)
+                            .addClass('project-checkbox');
+                        var label = $("<label>").html(project.name);
+                        $("#projects-list").append($('<li/>').append(checkbox, label));
                     }
-                    if (data.projects.length > 0) {
-                        $("#schedule-button").removeAttr("disabled");
+                }
+            });
+
+
+            // Fetch labels and populate the drop-down list
+            $.ajax({
+                type: "GET",
+                url: "/get_labels",
+                success: function (data) {
+                    for (var i = 0; i < data.labels.length; i++) {
+                        var label = data.labels[i];
+                        var option = $("<option>").val(label.id).text(label.name);
+                        var option = $("<option>").val(label.name).text(label.name); 
+                        $("#labels-select").append(option);
                     }
                 }
             });
           
-            $("body").on("click", "#projects-list a", function (e) {
-                e.preventDefault();
-                selected_project_id = $(this).attr("data-id");
-                $("#tasks-list").empty();
-                $.ajax({
-                    type: "GET",
-                    url: $(this).attr("href"),
-                    success: function (data) {
-                        for (var i = 0; i < data.tasks.length; i++) {
-                            var task = data.tasks[i];
-                            var task_li = $("<li/>").html(task.content + " due on " + task.due_date);
+$("body").on("click", "#show-button", function (e) {
+    e.preventDefault();
+    var selected_project_ids = [];
+    $(".project-checkbox:checked").each(function() {
+        selected_project_ids.push($(this).attr("data-id"));
+    });
+    var selectedLabels = $("#labels-select").val();
+
+    if (selected_project_ids.length > 0 && selectedLabels.length > 0) {
+        $("#tasks-list").empty();
+        
+        selected_project_ids.forEach(function(project_id) {
+            $.ajax({
+                type: "GET",
+                url: `/get_tasks_for_project/${project_id}`,
+                success: function (data) {
+                    for (var i = 0; i < data.tasks.length; i++) {
+                        var task = data.tasks[i];
+
+                        // Check if task labels match selected labels.
+                        if (task.all_labels.some(label => selectedLabels.includes(label))) {
+                            var task_html = task.content;
                             if (task.label) {
-                                task_li.append(" (" + task.label + ")");
+                                task_html += " (" + task.label + ")";
                             }
+                            if (task.all_labels && task.all_labels.length) {
+                                task_html += " [" + task.all_labels.join(", ") + "]";
+                            }
+                            var task_li = $("<li/>").html(task_html);
                             $("#tasks-list").append(task_li);
                         }
                     }
-                });
-            });
-
-            $("body").on("click", "#schedule-button", function (e) {
-                e.preventDefault();
-                if (selected_project_id && $("#start-date").val()) {
-                    $.ajax({
-                        type: "POST",
-                        url: "/schedule_tasks",
-                        data: {project_id: selected_project_id, start_date: $("#start-date").val()},
-                        success: function (data) {
-                            var events = data.scheduled_tasks.map(function (task) {
-                                return {
-                                    title: task.content,
-                                    start: task.start_date,
-                                    end: task.end_date,
-                                    allDay: false
-                                };
-                            });
-                            $("#calendar").fullCalendar("removeEvents");
-                            $("#calendar").fullCalendar("addEventSource", events);
-                        }
-                    });
+                    // Enable the "Schedule Tasks" button if there are tasks displayed.
+                    if ($("#tasks-list li").length > 0) {
+                        $("#schedule-button").removeAttr("disabled");
+                    } else {
+                        $("#schedule-button").attr("disabled", "disabled");
+                    }
                 }
             });
+        });
+    }
+});
+   
+
+$("body").on("click", "#schedule-button", function (e) {
+    e.preventDefault();
+    var selected_project_ids = [];
+    $(".project-checkbox:checked").each(function () {
+        selected_project_ids.push($(this).attr("data-id"));
+    });
+    var selectedLabelIds = $("#labels-select").val();
+    if (selected_project_ids.length > 0 && $("#start-date").val()) {
+        $.ajax({
+            type: "POST",
+            url: "/schedule_tasks",
+            data: {
+                "project_ids[]": selected_project_ids,
+                start_date: $("#start-date").val(),
+                "selected_labels[]": selectedLabelIds,
+              
+            },
+            traditional: true,  // Required for sending an array in the request
+            success: function (data) {
+                var events = data.scheduled_tasks.map(function (task) {
+                    return {
+                        title: task.content,
+                        start: task.start_date,
+                        end: task.end_date,
+                        allDay: false
+                    };
+                });
+                $("#calendar").fullCalendar("removeEvents");
+                $("#calendar").fullCalendar("addEventSource", events);
+            }
+        });
+    }
+});
+
             
             $("#calendar").fullCalendar({defaultView: "agendaWeek", allDaySlot: false, timezone: "local"});
         });
