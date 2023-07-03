@@ -92,8 +92,8 @@ $("body").on("click", "#show-button", function (e) {
                         // Check if task labels match selected labels.
                         if (task.all_labels.some(label => selectedLabels.includes(label))) {
                             var task_html = task.content;
-                            if (task.label) {
-                                task_html += " (" + task.label + ")";
+                            if (task.duration) {
+                                task_html += " (" + task.duration + ")";
                             }
                             if (task.all_labels && task.all_labels.length) {
                                 task_html += " [" + task.all_labels.join(", ") + "]";
