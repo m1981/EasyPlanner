@@ -19,7 +19,8 @@ API_KEY = "583cd2d37748348ee7173e1e32307ccfd4b4ed31"
 
 class Task:
 
-  def __init__(self, label, duration):
+  def __init__(self, title, label, duration):
+    self.title = title
     self.label = label
     self.duration = int(duration[:-3]) if duration else 30
     # Additional properties for scheduling detail
@@ -34,8 +35,8 @@ class Task:
     self.scheduled_start = start
 
   def __repr__(self):
-    return f"{self.label} ({self.duration} min at {self.scheduled_start} on {self.scheduled_date})"
-
+      return f"{self.title} ({self.duration} min at {self.scheduled_start} on {self.scheduled_date})"
+  
 
 class Zone:
   def __init__(self, start, end, label, schedule_date=None):
@@ -171,20 +172,17 @@ class Planner:
               
   # Generates a data structure ready for frontend consumption
   def get_scheduled_tasks(self):
-      scheduled_tasks = []
-      for i, day in enumerate(self.days):
-          for zone in day.zones:
-              for task in zone.tasks:
-                  if task.scheduled_start is not None:
-                     scheduled_tasks.append({
-                        "content": f'{task.label} ({task.duration} min)',
+    scheduled_tasks = []
+    for i, day in enumerate(self.days):
+        for zone in day.zones:
+            for task in zone.tasks:
+                if task.scheduled_start is not None:
+                    scheduled_tasks.append({
+                        "content": f'{task.title} ({task.duration} min)',
                         "start_date": (dt.datetime.combine(task.scheduled_date, dt.time(int(task.scheduled_start.split(':')[0]), int(task.scheduled_start.split(':')[1])))).isoformat(),
                         "end_date": (dt.datetime.combine(task.scheduled_date, dt.time(int(task.scheduled_start.split(':')[0]), int(task.scheduled_start.split(':')[1]))) + dt.timedelta(minutes=task.duration)).isoformat(),
-                     })
-      return scheduled_tasks
-
-
-
+                    })
+    return scheduled_tasks
 
 
 zones = {
@@ -348,7 +346,7 @@ def schedule_tasks_route():
       
       for task_label in task_types:
         if task_label in selected_labels:
-          selected_tasks.append(Task(label=task_label, duration=duration))
+          selected_tasks.append(Task(title=task.content, label=task_label, duration=duration))
           logger.debug(f'Task added : {task.content} with label {task_label} and duration {duration}')
         else:
           logger.debug(f'Task label not in selected labels: {task_label}')
