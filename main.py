@@ -59,47 +59,42 @@ class Zone:
             (start_time[0] * 60 + start_time[1]))
   
   def add(self, task):
-    if self.fits(task):
+      original_start = self.start  # Storing the original start time
+
+      fits = self.fits(task)
+      if not fits:
+          self.start = original_start  # Revert back to the original start if it doesn't fit
+          return False
+      
       self.tasks.append(task)
       self.remaining_mins -= task.duration
-      # Set the scheduled details for the task
-      task.set_scheduled_detail(self.schedule_date, self.start)
-      logger.debug(
-        f'Adding Task({task.label}, {task.duration} min) to zone starting at {self.start}. Remaining min in zone: {self.remaining_mins}'
-      )
+      task.set_scheduled_detail(self.schedule_date, original_start)
+
+      # Only update the real start time by task's duration when it fits in the zone
+      hour, minute = self.start.split(':')
+      new_time = int(minute) + task.duration
+      if new_time >= 60:
+          new_time -= 60
+          hour = int(hour) + 1
+      self.start = f'{hour}:{new_time:02d}'
+
+      return True
   
-      # after adding the task increment the start time of the zone
+  def fits(self, task):
       hour, minute = self.start.split(':')
       end_hour, end_minute = self.end.split(':')
       new_time = int(minute) + task.duration
       if new_time >= 60:
-        new_time -= 60
-        hour = int(hour) + 1
-  
-      # check if zone time exceeds end time, if so reset to start
-      if int(hour) > int(end_hour) or (int(hour) == int(end_hour) and new_time > int(end_minute)):
-        hour, new_time = self.start.split(':') # reset to start
-      self.start = f'{hour}:{new_time:02d}' # make sure minute is two digits
-  
-      return True
-    else:
-      logger.debug(
-        f'Task({task.label}, {task.duration} min) does not fit in zone {self.start}. Remaining min in zone: {self.remaining_mins}'
-      )
-      return False
-  
-  def fits(self, task):
-    hour, minute = self.start.split(':')
-    end_hour, end_minute = self.end.split(':')
-    new_time = int(minute) + task.duration
-    if new_time >= 60:
-      new_time -= 60
-      hour = int(hour) + 1
-    # If the task does not exceed the zone time and matches the label
-    if task.label == self.label and not (int(hour) > int(end_hour) or (int(hour) == int(end_hour) and new_time > int(end_minute))):
-      return True
-    else:
-      return False
+          new_time -= 60
+          hour = int(hour) + 1
+      # If the task does not exceed the zone time and matches the label
+      # Include task duration when comparing times
+      if task.label == self.label and not (int(hour) > int(end_hour)
+          or (int(hour) == int(end_hour) and new_time >= int(end_minute))):
+          return True
+      else:
+          return False
+
 
 
 class Day:
@@ -129,19 +124,20 @@ class Day:
 class Planner:
 
   def __init__(self, tasks, zones):
-    self.tasks = tasks
-    self.days = [
-      Day(zones[day], schedule_date=day) for day in [  # Include scheduling date
-        'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
-        'Sunday'
+      self.tasks = tasks
+      self.days = [
+          Day(zones[day], schedule_date=day) for day in [  # Include scheduling date
+              'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+              'Sunday'
+          ]
       ]
-    ]
 
 
   def schedule(self):
       today = dt.date.today()
       weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
       for task in self.tasks:
+          task_added = False
           for day_num in cycle(range(7)):
               # Set the date for each day as today plus the number of days passed since scheduling started.
               schedule_date = today + dt.timedelta(days=day_num)
@@ -152,26 +148,30 @@ class Planner:
                   logger.debug(
                       f'Added Task({task.label}, {task.duration} min) to a day\'s zone.'
                   )
+                  task_added = True
                   break
               logger.debug(
                   f'Failed to add Task({task.label}, {task.duration} min). Cycling to the next day.'
               )
-              continue
+
+          if not task_added:
+              print(f"Failed to schedule Task({task.label}, {task.duration} min). Task duration may be too long.")
+              break
 
   # Generates a data structure ready for frontend consumption
   def get_scheduled_tasks(self):
-    scheduled_tasks = []
-    for i, day in enumerate(self.days):
-        for zone in day.zones:
-            for task in zone.tasks:
-                # Check if the task was actually scheduled
-                if task.scheduled_start is not None:
-                   scheduled_tasks.append({
-                      "content": f'{task.label} ({task.duration} min)',
-                      "start_date": dt.datetime.combine(task.scheduled_date, dt.time(int(task.scheduled_start.split(':')[0]), int(task.scheduled_start.split(':')[1]))),
-                      "end_date": dt.datetime.combine(task.scheduled_date, dt.time(int(task.scheduled_start.split(':')[0]), int(task.scheduled_start.split(':')[1]))) + dt.timedelta(minutes=task.duration),
-                   })
-    return scheduled_tasks
+      scheduled_tasks = []
+      for i, day in enumerate(self.days):
+          for zone in day.zones:
+              for task in zone.tasks:
+                  if task.scheduled_start is not None:
+                     scheduled_tasks.append({
+                        "content": f'{task.label} ({task.duration} min)',
+                        "start_date": (dt.datetime.combine(task.scheduled_date, dt.time(int(task.scheduled_start.split(':')[0]), int(task.scheduled_start.split(':')[1])))).isoformat(),
+                        "end_date": (dt.datetime.combine(task.scheduled_date, dt.time(int(task.scheduled_start.split(':')[0]), int(task.scheduled_start.split(':')[1]))) + dt.timedelta(minutes=task.duration)).isoformat(),
+                     })
+      return scheduled_tasks
+
 
 
 
