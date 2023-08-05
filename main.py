@@ -1,32 +1,243 @@
-from flask import Flask, render_template, jsonify
+import logging
+from flask import Flask, render_template, jsonify, request
 from todoist_api_python.api import TodoistAPI
-import datetime
+import re
+import datetime as dt
+from itertools import cycle
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(message)s"
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
 # Define your API key globally:
 API_KEY = "583cd2d37748348ee7173e1e32307ccfd4b4ed31"
-NIGHT_START_HOUR = 0  # midnight
-NIGHT_END_HOUR = 6  # 6 AM
+
+
+class Task:
+
+  def __init__(self, label, duration):
+    self.label = label
+    self.duration = int(duration[:-3]) if duration else 30
+    # Additional properties for scheduling detail
+    self.scheduled_date = None
+    self.scheduled_start = None
+    logger.debug(
+      f'Creating task with label {self.label} and duration {self.duration} minutes'
+    )
+
+  def set_scheduled_detail(self, date, start):
+    self.scheduled_date = date
+    self.scheduled_start = start
+
+  def __repr__(self):
+    return f"{self.label} ({self.duration} min at {self.scheduled_start} on {self.scheduled_date})"
+
+
+class Zone:
+  def __init__(self, start, end, label, schedule_date=None):
+      self.start = start
+      self.end = end
+      self.label = label
+      self.tasks = []
+      self.remaining_mins = self._calculate_total_time()
+      self.schedule_date = schedule_date
+      logger.debug(
+          f'Creating zone starting at {self.start}, ending at {self.end} for label {self.label}'
+      )
+
+  def __repr__(self):
+    return f"\n{self.label} from {self.start} to {self.end} with {len(self.tasks)} tasks: {self.tasks}"
+
+  def _calculate_total_time(self):
+    start_time = [int(i) for i in self.start.split(":")]
+    end_time = [int(i) for i in self.end.split(":")]
+    return ((end_time[0] * 60 + end_time[1]) -
+            (start_time[0] * 60 + start_time[1]))
+  
+  def add(self, task):
+    if self.fits(task):
+      self.tasks.append(task)
+      self.remaining_mins -= task.duration
+      # Set the scheduled details for the task
+      task.set_scheduled_detail(self.schedule_date, self.start)
+      logger.debug(
+        f'Adding Task({task.label}, {task.duration} min) to zone starting at {self.start}. Remaining min in zone: {self.remaining_mins}'
+      )
+  
+      # after adding the task increment the start time of the zone
+      hour, minute = self.start.split(':')
+      end_hour, end_minute = self.end.split(':')
+      new_time = int(minute) + task.duration
+      if new_time >= 60:
+        new_time -= 60
+        hour = int(hour) + 1
+  
+      # check if zone time exceeds end time, if so reset to start
+      if int(hour) > int(end_hour) or (int(hour) == int(end_hour) and new_time > int(end_minute)):
+        hour, new_time = self.start.split(':') # reset to start
+      self.start = f'{hour}:{new_time:02d}' # make sure minute is two digits
+  
+      return True
+    else:
+      logger.debug(
+        f'Task({task.label}, {task.duration} min) does not fit in zone {self.start}. Remaining min in zone: {self.remaining_mins}'
+      )
+      return False
+  
+  def fits(self, task):
+    hour, minute = self.start.split(':')
+    end_hour, end_minute = self.end.split(':')
+    new_time = int(minute) + task.duration
+    if new_time >= 60:
+      new_time -= 60
+      hour = int(hour) + 1
+    # If the task does not exceed the zone time and matches the label
+    if task.label == self.label and not (int(hour) > int(end_hour) or (int(hour) == int(end_hour) and new_time > int(end_minute))):
+      return True
+    else:
+      return False
+
+
+class Day:
+  def __repr__(self):
+    return f"\nZones for day {self.zones[0].schedule_date} are: {self.zones}"
+    
+  def __init__(self, zones, schedule_date):
+    self.zones = [Zone(**z, schedule_date=schedule_date) for z in zones]
+    self.zones.sort(key=lambda x: x.start)
+
+  def add_task(self, task):
+    for zone in self.zones:
+      if zone.add(task):
+        logger.debug(
+          f'Task added task to the day\'s zone. {task.label}, {task.duration} min'
+        )
+        return True
+    logger.debug(
+      f'Task not added to current zone. {task.label}, {task.duration} min'
+    )
+
+    return False
+
+
+
+
+class Planner:
+
+  def __init__(self, tasks, zones):
+    self.tasks = tasks
+    self.days = [
+      Day(zones[day], schedule_date=day) for day in [  # Include scheduling date
+        'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+        'Sunday'
+      ]
+    ]
+
+
+  def schedule(self):
+      today = dt.date.today()
+      weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+      for task in self.tasks:
+          for day_num in cycle(range(7)):
+              # Set the date for each day as today plus the number of days passed since scheduling started.
+              schedule_date = today + dt.timedelta(days=day_num)
+              # Set the schedule_date property of every zone in the day.
+              for zone in self.days[day_num].zones:
+                  zone.schedule_date = schedule_date
+              if self.days[day_num].add_task(task):
+                  logger.debug(
+                      f'Added Task({task.label}, {task.duration} min) to a day\'s zone.'
+                  )
+                  break
+              logger.debug(
+                  f'Failed to add Task({task.label}, {task.duration} min). Cycling to the next day.'
+              )
+              continue
+
+  # Generates a data structure ready for frontend consumption
+  def get_scheduled_tasks(self):
+    scheduled_tasks = []
+    for i, day in enumerate(self.days):
+        for zone in day.zones:
+            for task in zone.tasks:
+                # Check if the task was actually scheduled
+                if task.scheduled_start is not None:
+                   scheduled_tasks.append({
+                      "content": f'{task.label} ({task.duration} min)',
+                      "start_date": dt.datetime.combine(task.scheduled_date, dt.time(int(task.scheduled_start.split(':')[0]), int(task.scheduled_start.split(':')[1]))),
+                      "end_date": dt.datetime.combine(task.scheduled_date, dt.time(int(task.scheduled_start.split(':')[0]), int(task.scheduled_start.split(':')[1]))) + dt.timedelta(minutes=task.duration),
+                   })
+    return scheduled_tasks
+
+
+
 
 zones = {
-    "Monday": [
-        {"start": "10:00", "end": "11:00", "label": "ForMyself😎"},
-        {"start": "17:00", "end": "20:00", "label": "ForWorld"}
-    ],
-    # other days...
+  "Monday": [{
+    "start": "10:00",
+    "end": "11:00",
+    "label": "ForMyself😎"
+  }, {
+    "start": "17:00",
+    "end": "21:00",
+    "label": "ForWorld🌎"
+  }],
+  "Tuesday": [{
+    "start": "10:00",
+    "end": "11:00",
+    "label": "ForMyself😎"
+  }, {
+    "start": "17:00",
+    "end": "21:00",
+    "label": "ForWorld🌎"
+  }],
+  "Wednesday": [{
+    "start": "10:00",
+    "end": "11:00",
+    "label": "ForMyself😎"
+  }, {
+    "start": "17:00",
+    "end": "21:00",
+    "label": "ForWorld🌎"
+  }],
+  "Thursday": [{
+    "start": "10:00",
+    "end": "11:00",
+    "label": "ForMyself😎"
+  }, {
+    "start": "17:00",
+    "end": "21:00",
+    "label": "ForWorld🌎"
+  }],
+  "Friday": [{
+    "start": "10:00",
+    "end": "11:00",
+    "label": "ForMyself😎"
+  }, {
+    "start": "17:00",
+    "end": "21:00",
+    "label": "ForWorld🌎"
+  }],
+  "Saturday": [
+    {
+      "start": "10:00",
+      "end": "23:00",
+      "label": "ForMyself😎"
+    },
+  ],
+  "Sunday": [
+    {
+      "start": "10:00",
+      "end": "23:00",
+      "label": "ForMyself😎"
+    },
+  ],
 }
 
-def get_zone_total_time(zones):
-    zone_times = {}
-    for day, day_zones in zones.items():
-        total_time = 0
-        for zone in day_zones:
-            start_time = int(zone["start"].split(":")[0]) * 60 + int(zone["start"].split(":")[1])
-            end_time = int(zone["end"].split(":")[0]) * 60 + int(zone["end"].split(":")[1])
-            total_time += end_time - start_time
-        zone_times[day] = total_time
-    return zone_times
 
 @app.route('/')
 def index():
@@ -53,23 +264,23 @@ def get_tasks_for_project(project_id):
   tasks = api.get_tasks(project_id=project_id)
   tasks_for_project = []
   for task in tasks:
-      task_dict = {"content": task.content, "all_labels": task.labels}
+    task_dict = {"content": task.content, "all_labels": task.labels}
 
-      # Check if the task object has a 'labels' attribute.
-      if hasattr(task, 'labels'):
-        labels = task.labels
+    # Check if the task object has a 'labels' attribute.
+    if hasattr(task, 'labels'):
+      labels = task.labels
 
-        # If labels are a list of dictionaries, extract their 'name' attribute.
-        if isinstance(labels, list) and all(
-            isinstance(label, dict) for label in labels):
-          labels = [label['name'] for label in labels]
+      # If labels are a list of dictionaries, extract their 'name' attribute.
+      if isinstance(labels, list) and all(
+          isinstance(label, dict) for label in labels):
+        labels = [label['name'] for label in labels]
 
-        # Iterate over labels and check for the duration labels.
-        for label in labels:
-          if isinstance(label, str) and label in ['10min', '30min', '60min']:
-            task_dict["duration"] = label
-      print(task_dict)
-      tasks_for_project.append(task_dict)
+      # Iterate over labels and check for the duration labels.
+      for label in labels:
+        if isinstance(label, str) and label in ['10min', '30min', '60min']:
+          task_dict["duration"] = label
+    print(task_dict)
+    tasks_for_project.append(task_dict)
   return jsonify({"tasks": tasks_for_project})
 
 
@@ -83,108 +294,69 @@ def get_labels():
   return jsonify({"labels": label_list})
 
 
-from flask import request
-
-
 @app.route("/schedule_tasks", methods=["POST"])
 def schedule_tasks_route():
-    print("schedule_tasks_route")
-    selectedLabels = set(request.form.getlist("selected_labels[]"))
-    project_ids = request.form.getlist("project_ids[]")
-    start_date_str = request.form["start_date"]
-    start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d")
+  logger.debug('Starting schedule_tasks_route function.')
 
-    print(f"Selected Labels: {selectedLabels}")
-    print(f"Selected Project IDs: {project_ids}")
-    print(f"Start Date: {start_date}")
+  api = TodoistAPI(API_KEY)
 
-    api = TodoistAPI(API_KEY)
+  selected_labels = set(request.form.getlist("selected_labels[]"))
+  project_ids = request.form.getlist("project_ids[]")
 
-    # Fetch tasks from all selected projects
-    all_project_tasks = []
-    for project_id in project_ids:
-        tasks = api.get_tasks(project_id=project_id)
-        all_project_tasks.extend(tasks)
+  logger.debug(f'Selected labels: {selected_labels}')
+  logger.debug(f'Project Ids: {project_ids}')
 
-    tasks_for_project = []
-    for task in all_project_tasks:
-        print(f"Task: {task}")
-        print(f"Task Labels: {task.labels}")
-        
-        # Compare the task label names with the selected label names
-        if set(task.labels).intersection(selectedLabels):
-            print("Selected Labels Match")
-            task_dict = {"content": task.content, "all_labels": task.labels}
+  # Fetch all labels 
+  all_labels = api.get_labels()
+  # Create label name to id mapping
+  name_to_id = {label.name: str(label.id) for label in all_labels}
 
-            # Check for duration labels.
-            for label in task.labels:
-                if isinstance(label, str) and label in ['10min', '30min', '60min']:
-                    task_dict["duration"] = label
-            print(task_dict)
-            tasks_for_project.append(task_dict)
+  logger.debug(f'All Labels: {name_to_id}')
 
-    scheduled_tasks = schedule_tasks(tasks_for_project, start_date)
-    return jsonify({"scheduled_tasks": scheduled_tasks})
+  selected_tasks = []
 
-def schedule_tasks(tasks, start_date):
-    print('schedule_tasks')
-    print(tasks)
-    scheduled_tasks = []
+  for project_id in project_ids:
+    tasks = api.get_tasks(project_id=project_id)
+    logger.debug(f'Fetched {len(tasks)} tasks for project {project_id}')
 
-    # Combine all zones and sort them
-    all_zones = sorted([zone for day_zones in zones.values() for zone in day_zones],
-                       key=lambda z: (int(z["start"].split(":")[0]), int(z["start"].split(":")[1])))
-    
     for task in tasks:
-        duration = 30  # default to 30 minutes if no label is specified
-        if "duration" in task:
-            duration = int(task["duration"][:-3])
-            print("Task Duration:", duration)
-        
-        # Iterate over zones to find one where the task fits
-        for zone in all_zones:
-            if zone["label"] in task["all_labels"]:
-                print(f"Zone Found: {zone['label']}")
-                # Modify start and end dates of task according to zone time
-                task_start_date = start_date + datetime.timedelta(hours=int(zone["start"].split(":")[0]), minutes=int(zone["start"].split(":")[1]))
-                task_end_date = task_start_date + datetime.timedelta(minutes=duration)
+      task_labels = [label for label in task.labels]  # task labels are names
+      logger.debug(f'Task id: {task.id} labels conv to {task_labels}')
 
-                print("Task Start Date:", task_start_date)
-                print("Task End Date:", task_end_date)
+      duration_labels = [label for label in task_labels if bool(re.match(r'^\d+min$', label))]
+      if len(duration_labels) > 0:
+        duration = duration_labels[0]
+      else:
+        duration = '30min'
+      
+      # Removing all duration labels
+      task_types = set(task_labels) - set(duration_labels)
 
-                # Check if task falls within night hours. If it does, move to the next day
-                if NIGHT_START_HOUR <= task_start_date.hour < NIGHT_END_HOUR:
-                    print("Task falls within night hours, moving to next day.")
-                    task_start_date += datetime.timedelta(days=1)
-                    task_end_date += datetime.timedelta(days=1)
+      logger.debug(f'Task types: {task_types}')
+      logger.debug(f'Selected labels: {selected_labels}')
+      
+      for task_label in task_types:
+        if task_label in selected_labels:
+          selected_tasks.append(Task(label=task_label, duration=duration))
+          logger.debug(f'Task added : {task.content} with label {task_label} and duration {duration}')
+        else:
+          logger.debug(f'Task label not in selected labels: {task_label}')
 
-                # Check if the task fits within the zone and doesn't reach into the next zone or night hours
-                next_zone_start = start_date + datetime.timedelta(days=1) if all_zones.index(zone) + 1 == len(all_zones) else start_date + datetime.timedelta(hours=int(all_zones[all_zones.index(zone) + 1]["start"].split(":")[0]), minutes=int(all_zones[all_zones.index(zone) + 1]["start"].split(":")[1]))
+  logger.debug(f'Selected tasks: {selected_tasks}')
 
-                print("Next Zone Start:", next_zone_start)
-                # Determine the start of the night
-                night_start = task_start_date.replace(hour=NIGHT_START_HOUR)
-                if task_start_date.hour >= NIGHT_START_HOUR:
-                    night_start += datetime.timedelta(days=1)
-                print("Night Start:", night_start)
-                
-                min_next_or_night_start = min(next_zone_start, night_start)
-                print("Minimum of Next Zone Start and Night Start:", min_next_or_night_start)
+  planner = Planner(selected_tasks, zones)
+  planner.schedule()
 
-                if task_end_date < min_next_or_night_start:
-                    # This task can be scheduled in this zone
-                    print("Task scheduled successfully.")
+  logger.debug(f'Finished scheduling tasks. Current planner state: {planner.__dict__}')
+  logger.debug(f'Finished scheduling tasks. Current planner state: {planner.__dict__}')
+  for task in planner.tasks:
+    logger.debug(str(task))
+  for day in planner.days:
+    logger.debug(str(day))
+  logger.debug('Finished schedule_tasks_route function.')
 
-                    task["start_date"] = task_start_date.strftime("%Y-%m-%d %H:%M:%S")
-                    task["end_date"] = task_end_date.strftime("%Y-%m-%d %H:%M:%S")
-                    scheduled_tasks.append(task)
-                    
-                    # Stop looking for zones once a task is scheduled
-                    break
-                else:
-                    print("Task did not fit in zone.")
-
-    return scheduled_tasks
+  scheduled_tasks = planner.get_scheduled_tasks()  
+  return jsonify({"scheduled_tasks": scheduled_tasks}), 200
 
 
 
