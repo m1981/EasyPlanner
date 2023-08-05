@@ -60,16 +60,16 @@ class Zone:
   
   def add(self, task):
       original_start = self.start  # Storing the original start time
-
+  
       fits = self.fits(task)
       if not fits:
           self.start = original_start  # Revert back to the original start if it doesn't fit
           return False
-      
+  
       self.tasks.append(task)
       self.remaining_mins -= task.duration
       task.set_scheduled_detail(self.schedule_date, original_start)
-
+  
       # Only update the real start time by task's duration when it fits in the zone
       hour, minute = self.start.split(':')
       new_time = int(minute) + task.duration
@@ -77,8 +77,9 @@ class Zone:
           new_time -= 60
           hour = int(hour) + 1
       self.start = f'{hour}:{new_time:02d}'
-
+  
       return True
+
   
   def fits(self, task):
       hour, minute = self.start.split(':')
@@ -89,11 +90,10 @@ class Zone:
           hour = int(hour) + 1
       # If the task does not exceed the zone time and matches the label
       # Include task duration when comparing times
-      if task.label == self.label and not (int(hour) > int(end_hour)
-          or (int(hour) == int(end_hour) and new_time >= int(end_minute))):
-          return True
-      else:
-          return False
+      return task.label == self.label and not (int(hour) > int(end_hour)
+          or (int(hour) == int(end_hour) and new_time > int(end_minute)))
+
+  
 
 
 
@@ -120,44 +120,55 @@ class Day:
 
 
 
+from collections import deque
 
 class Planner:
 
   def __init__(self, tasks, zones):
-      self.tasks = tasks
+      # make it a deque for efficient popleft operation and sort by duration
+      self.tasks = deque(sorted(tasks, key=lambda x: x.duration, reverse=True))
       self.days = [
-          Day(zones[day], schedule_date=day) for day in [  # Include scheduling date
+          Day(zones[day], schedule_date=day) for day in [
               'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
               'Sunday'
           ]
       ]
 
-
   def schedule(self):
       today = dt.date.today()
-      weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-      for task in self.tasks:
-          task_added = False
-          for day_num in cycle(range(7)):
-              # Set the date for each day as today plus the number of days passed since scheduling started.
-              schedule_date = today + dt.timedelta(days=day_num)
-              # Set the schedule_date property of every zone in the day.
-              for zone in self.days[day_num].zones:
-                  zone.schedule_date = schedule_date
+      for day_num in cycle(range(7)):
+          # Set the date for each day as today plus the number of days passed since scheduling started.
+          schedule_date = today + dt.timedelta(days=day_num)
+          # Set the schedule_date property of every zone in the day.
+          for zone in self.days[day_num].zones:
+              zone.schedule_date = schedule_date
+          
+          while self.tasks:  # while there are still tasks to schedule
+              task = self.tasks[0]  # peek at leftmost task
               if self.days[day_num].add_task(task):
                   logger.debug(
                       f'Added Task({task.label}, {task.duration} min) to a day\'s zone.'
                   )
-                  task_added = True
-                  break
-              logger.debug(
-                  f'Failed to add Task({task.label}, {task.duration} min). Cycling to the next day.'
-              )
-
-          if not task_added:
-              print(f"Failed to schedule Task({task.label}, {task.duration} min). Task duration may be too long.")
+                  self.tasks.popleft()  # remove it from queue
+                  
+                  # Check from shortest unscheduled task to fill in the remaining time
+                  if self.tasks:
+                      for idx, remaining_task in enumerate(reversed(self.tasks)): 
+                          if self.days[day_num].add_task(remaining_task):
+                              del self.tasks[-idx-1]  # delete the scheduled task from deque
+                              break 
+              else:
+                  break  # break out of loop to move to next day
+              
+          if not self.tasks:  # All tasks are scheduled!
               break
 
+      if self.tasks:  # if there are still unscheduled tasks
+          print("The following tasks couldn't be scheduled due to their long durations:")
+          for task in self.tasks:
+              print(task)
+
+              
   # Generates a data structure ready for frontend consumption
   def get_scheduled_tasks(self):
       scheduled_tasks = []
