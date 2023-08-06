@@ -94,10 +94,6 @@ class Zone:
       return task.label == self.label and not (int(hour) > int(end_hour)
           or (int(hour) == int(end_hour) and new_time > int(end_minute)))
 
-  
-
-
-
 class Day:
   def __repr__(self):
     return f"\nZones for day {self.zones[0].schedule_date} are: {self.zones}"
@@ -114,7 +110,7 @@ class Day:
         )
         return True
     logger.debug(
-      f'Task not added to current zone. {task.label}, {task.duration} min'
+      f'Task not added. {task.title}, {task.duration} min, {zone}'
     )
 
     return False

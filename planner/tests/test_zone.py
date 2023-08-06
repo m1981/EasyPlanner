@@ -1,33 +1,32 @@
+# zone_test.py
 import pytest
-from app.models.zone import Zone
-
-# Test creating a Zone object
-def test_create_zone():
-    zone = Zone("Work", "9:00", "17:00")
-    assert zone.get_label() == "Work"
-    assert zone.get_start_time() == 9 * 60  # Returns the time in minutes
-    assert zone.get_end_time() == 17 * 60
+from app.models.zone import Zone, Task
+from datetime import datetime
 
 
-# Test setting and getting label
-def test_label_setter_and_getter():
-    zone = Zone(None, "9:00", "17:00")
-    zone.set_label("Study")
-    assert zone.get_label() == "Study"
+class TestZone:
 
-def test_start_time_setter_and_getter():
-    with pytest.raises(TypeError):
-        zone = Zone("Work", None, "17:00")  # None as start time
+  def setup_method(self):
+    self.zone = Zone("10:00", "13:00", "label1")
+    self.task1 = Task("task1", "label1", 60)
+    self.task2 = Task("task1", "label1", 200)
 
-def test_end_time_setter_and_getter():
-    with pytest.raises(TypeError):
-        zone = Zone("Work", "9:00", None) # None as end time
+  def test_add_task(self):
+    # Test that a task that fits the zone can be added
+    result = self.zone.add(self.task1)
+    assert result
+    assert len(self.zone.tasks) == 1
 
-# Test for edge case: start time later than end time
-def test_incorrect_start_end_time():
-    with pytest.raises(ValueError):
-        Zone("Work", "17:00", "9:00")
+    # Test that a task that doesn't fit the zone can't be added
+    result = self.zone.add(self.task2)
+    assert not result
+    assert len(self.zone.tasks) == 1
 
-def test_incorrect_time_format():
-    with pytest.raises(TypeError): 
-        zone = Zone("Work", "9am", "5pm")  # Will raise TypeError, not ValueError
+  def test_fits(self):
+    # Test that a task that fits the zone is recognized
+    result = self.zone.fits(self.task1)
+    assert result
+
+    # Test that a task that doesn't fit the zone isn't recognized
+    result = self.zone.fits(self.task2)
+    assert not result

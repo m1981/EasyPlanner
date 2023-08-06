@@ -1,40 +1,52 @@
+# zone.py
+from __future__ import annotations
+from typing import List, Optional
+from datetime import datetime
+from app.models.task import Task
+
 class Zone:
-    def __init__(self, label, start_time, end_time):
-        self.start_time = self._parse_time(start_time)
-        self.end_time = self._parse_time(end_time)
-        
-        if self.end_time <= self.start_time:
-            raise ValueError("End time must be later than start time")
-        
+    def __init__(self, start: str, end: str, label: str, schedule_date: Optional[datetime] = None):
+        self.start = start
+        self.end = end
         self.label = label
-        print(f"Zone created. Label: {self.label}, Start Time: {self.start_time}, End Time: {self.end_time}")
+        self.tasks: List[Task] = []
+        self.remaining_mins = self._calculate_total_time()
+        self.schedule_date = schedule_date
 
-    def _parse_time(self, time):
-        if isinstance(time, str) and ':' in time:
-            hours, minutes = map(int, time.split(':'))
-            return hours * 60 + minutes  # returns time in minutes for easier comparison
-        elif isinstance(time, int):
-            return time
-        else:
-            raise TypeError("Time must be a string in the format 'HH:MM' or an integer representing minutes since midnight")
+    def _calculate_total_time(self) -> int:
+        start_time = [int(i) for i in self.start.split(":")]
+        end_time = [int(i) for i in self.end.split(":")]
+        return ((end_time[0] * 60 + end_time[1]) - (start_time[0] * 60 + start_time[1]))
 
+    def add(self, task: Task) -> bool:
+        original_start = self.start
 
-    # Getters
-    def get_label(self):
-        return self.label
+        fits = self.fits(task)
+        if not fits:
+            self.start = original_start
+            return False
 
-    def get_start_time(self):
-        return self.start_time
+        self.tasks.append(task)
+        self.remaining_mins -= task.duration
+        task.set_scheduled_detail(self.schedule_date, original_start)
 
-    def get_end_time(self):
-        return self.end_time
+        hour, minute = self.start.split(':')
+        new_time = int(minute) + task.duration
+        if new_time >= 60:
+            new_time -= 60
+            hour = int(hour) + 1
+        self.start = f'{hour}:{new_time:02d}'
 
-    # Setters
-    def set_label(self, label):
-        self.label = label
+        return True
 
-    def set_start_time(self, start_time):
-        self.start_time = start_time
+    def fits(self, task: Task) -> bool:
+        hour, minute = self.start.split(':')
+        end_hour, end_minute = self.end.split(':')
+        new_time = int(minute) + task.duration
+        if new_time >= 60:
+            new_time -= 60
+            hour = int(hour) + 1
 
-    def set_end_time(self, end_time):
-        self.end_time = end_time
+        return (task.label == self.label
+            and int(hour) <= int(end_hour)
+            and new_time <= int(end_minute))
