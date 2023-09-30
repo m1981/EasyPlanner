@@ -82,3 +82,46 @@ def test_add_task_no_zones():
     assert day.add_task(task) is False
 
 
+def test_adding_a_task_non_fitting_labels():
+    zone_1 = {"start": "10:00", "end": "12:00", "label": "ForMyself😎"}
+    zone_2 = {"start": "17:00", "end": "21:00", "label": "ForWorld🌎"}
+
+    # Testing the scenario where ForMyself😎 is scheduled for a task with label ForWorld
+    task_a = Task("wydrukować szablon", ["ForWorld🌎"], "30min")
+    weekday = "Sunday"
+    day = Day([zone_1, zone_2], weekday) 
+
+    # Task label doesn't exist in any zone within the day.
+    assert day.add_task(task_a) == False
+  
+def test_adding_a_task_non_fitting_times():
+    zone_1 = {"start": "10:00", "end": "12:00", "label": "ForMyself😎"}
+    zone_2 = {"start": "17:00", "end": "18:00", "label": "ForWorld🌎"}
+  
+    # Testing the scenario where only 60 mins left but a task with 90 mins requested
+    task_a = Task("wydrukować szablon", ["ForWorld🌎"], "90min")
+    weekday = "Sunday"
+    day = Day([zone_1, zone_2], weekday) 
+
+    # Task duration > remaining time in the matching zone within the day.
+    assert day.add_task(task_a) == False
+
+
+
+def test_task_not_scheduled_results_in_infinite_loop():
+    # Defining zones where no task can be scheduled
+    zones = {
+        "Monday": [{"start": "10:00", "end": "11:00", "label": "UNAVAILABLE"}],
+        "Tuesday": [{"start": "10:00", "end": "11:00", "label": "UNAVAILABLE"}],
+        "Wednesday": [{"start": "10:00", "end": "11:00", "label": "UNAVAILABLE"}],
+        "Thursday": [{"start": "10:00", "end": "11:00", "label": "UNAVAILABLE"}],
+        "Friday": [{"start": "10:00", "end": "11:00", "label": "UNAVAILABLE"}],
+        "Saturday": [{"start": "10:00", "end": "23:00", "label": "UNAVAILABLE"}],
+        "Sunday": [{"start": "10:00", "end": "23:00", "label": "UNAVAILABLE"}],
+    }
+    tasks = [Task("Task 1", ["ForWorld🌎"], "30min"), Task("Task 2", ["ForMyself😎"], "10min")]
+
+    planner = Planner(tasks, zones)
+
+    with pytest.raises(RuntimeError):
+         planner.schedule()

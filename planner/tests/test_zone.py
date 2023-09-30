@@ -39,3 +39,30 @@ def test_zone_with_inadequate_time_left():
     assert zone.add(task) == False
     assert zone.tasks == []
     assert zone.current_time == dt.datetime.strptime('10:00', '%H:%M').time()
+
+
+
+def test_task_does_not_fit_due_to_non_matching_labels():
+    zone = Zone('10:00', '12:00', 'Work')
+    task = Task('Rest task', ['Rest'], '45min')
+    assert zone.fits(task) == False
+
+def test_task_fits_due_to_matching_labels():
+    zone = Zone('10:00', '12:00', 'Work')
+    task = Task('Work task', ['Work'], '45min')
+    assert zone.fits(task) == True
+
+def test_multiple_matching_labels_are_accepted():
+    zone = Zone('10:00', '12:00', ['Work', 'Exercise'])
+    task = Task('Exercise task', ['Exercise'], '45min')
+    assert zone.fits(task) == True
+
+def test_multiple_non_matching_labels_are_rejected():
+    zone = Zone('10:00', '12:00', ['Work', 'Exercise'])
+    task = Task('Rest task', ['Rest'], '45min')
+    assert zone.fits(task) == False
+
+def test_matching_and_non_matching_labels_are_accepted():
+    zone = Zone('10:00', '12:00', ['Work', 'Exercise'])
+    task = Task('Work task', ['Work', 'Rest'], '45min')
+    assert zone.fits(task) == True

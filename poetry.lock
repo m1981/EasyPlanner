@@ -257,6 +257,14 @@ optional = false
 python-versions = ">=3.7"
 
 [[package]]
+name = "modules"
+version = "1.0.0"
+description = "Simple test on modules"
+category = "main"
+optional = false
+python-versions = "*"
+
+[[package]]
 name = "multidict"
 version = "6.0.4"
 description = "multidict implementation"
@@ -619,7 +627,7 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "1.1"
 python-versions = ">=3.10.0,<3.11"
-content-hash = "ca45a6e5faf0d700e43469193d054119b070999da6da0d79894a3fd0498abd2b"
+content-hash = "d79bd509075bd3bc9dd46550cf9b546d635455871ee03b7bffecb82bc491425c"
 
 [metadata.files]
 aiohttp = []
@@ -644,6 +652,7 @@ itsdangerous = []
 jedi = []
 jinja2 = []
 markupsafe = []
+modules = []
 multidict = []
 packaging = []
 parso = []

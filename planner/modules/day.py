@@ -76,18 +76,17 @@ class Zone:
       return False
 
   def fits(self, task):
-    # Only checking if there's enough remaining time for task in Zone
-    # For label compatibility, it uses set intersection to check if any task label is compatible with the zone
-    assert isinstance(task.label, list), (
-        "task.label should be a list of labels")
-    #assert set(task.label).issubset(set(self.labels)), (
-        #"task.label should be subset of self.labels")
-    if set(task.label).intersection(self.labels):
-      end_datetime = dt.datetime.combine(dt.date.today(), self.end)
-      new_end_time = (dt.datetime.combine(dt.date.today(), self.current_time) +
-                      dt.timedelta(minutes=task.duration))
-      return new_end_time <= end_datetime
-    return False
+      # Only checking if there's enough remaining time for task in Zone
+      # For label compatibility, it checks if Zone's label is in Task's label
+      assert isinstance(task.label, list), "task.label should be a list of labels"
+      
+      if any(lbl in self.labels for lbl in task.label):
+          end_datetime = dt.datetime.combine(dt.date.today(), self.end)
+          new_end_time = (dt.datetime.combine(dt.date.today(), self.current_time) +
+                          dt.timedelta(minutes=task.duration))
+          return new_end_time <= end_datetime  # it fits when the new end time is less than the Zone's end time
+      return False  # doesn't fit if the Zone's label is not found in the Task's labels
+  
 
 
 class Day:

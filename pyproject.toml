@@ -12,6 +12,7 @@ todoist = "^0.0.1"
 todoist-api-python = "^2.0.2"
 python-dateutil = "^2.8.2"
 app = "^0.0.1"
+modules = "^1.0.0"
 
 [tool.poetry.dev-dependencies]
 debugpy = "^1.6.2"

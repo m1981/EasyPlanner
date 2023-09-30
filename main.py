@@ -4,6 +4,7 @@ from todoist_api_python.api import TodoistAPI
 import re
 import datetime as dt
 from itertools import cycle
+from planner.modules.day import Task, Day, Zone
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -26,7 +27,7 @@ class Planner:
       # make it a deque for efficient popleft operation and sort by duration
       self.tasks = deque(sorted(tasks, key=lambda x: x.duration, reverse=True))
       self.days = [
-          Day(zones[day], schedule_date=day) for day in [
+          Day(zones[day], schedule_date_string=day) for day in [
               'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
               'Sunday'
           ]
@@ -241,7 +242,7 @@ def schedule_tasks_route():
       
       for task_label in task_types:
         if task_label in selected_labels:
-          selected_tasks.append(Task(title=task.content, label=task_label, duration=duration))
+          selected_tasks.append(Task(title=task.content, label=[task_label], duration=duration))
           logger.debug(f'Task added : {task.content} with label {task_label} and duration {duration}')
         else:
           logger.debug(f'Task label not in selected labels: {task_label}')
