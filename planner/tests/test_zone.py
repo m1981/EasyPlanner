@@ -1,32 +1,41 @@
-# zone_test.py
 import pytest
-from app.models.zone import Zone, Task
-from datetime import datetime
+import datetime as dt
+from modules.day import Zone, Task, Day
 
 
-class TestZone:
 
-  def setup_method(self):
-    self.zone = Zone("10:00", "13:00", "label1")
-    self.task1 = Task("task1", "label1", 60)
-    self.task2 = Task("task1", "label1", 200)
+def test_empty_zone_raises_error():
+    with pytest.raises(AssertionError):
+        Zone("", "", ["Work"])
 
-  def test_add_task(self):
-    # Test that a task that fits the zone can be added
-    result = self.zone.add(self.task1)
-    assert result
-    assert len(self.zone.tasks) == 1
+def test_task_without_labels_does_not_fit():
+    zone = Zone('10:00', '12:00', ['Work'])
+    task = Task('test task', [], '10min')
+    assert zone.fits(task) == False
+    assert zone.add(task) == False
 
-    # Test that a task that doesn't fit the zone can't be added
-    result = self.zone.add(self.task2)
-    assert not result
-    assert len(self.zone.tasks) == 1
+def test_task_without_matching_labels_does_not_fit():
+    zone = Zone('10:00', '12:00', ['School'])
+    task = Task('test task', ['Work'], '10min')
+    assert zone.fits(task) == False
+    assert zone.add(task) == False
 
-  def test_fits(self):
-    # Test that a task that fits the zone is recognized
-    result = self.zone.fits(self.task1)
-    assert result
+def test_task_with_matching_labels_fits():
+    zone = Zone('10:00', '12:00', ['Work', 'School'])
+    task = Task('test task', ['Work'], '10min')
+    assert zone.fits(task) == True
 
-    # Test that a task that doesn't fit the zone isn't recognized
-    result = self.zone.fits(self.task2)
-    assert not result
+def test_task_with_matching_labels_is_added():
+    zone = Zone('10:00', '12:00', ['Work', 'School'])
+    task = Task('test task', ['Work'], '10min')
+    assert zone.add(task) == True
+    assert zone.tasks == [task]
+    assert zone.current_time == (dt.datetime.combine(dt.date.today(), dt.datetime.strptime('10:10', '%H:%M').time())).time()
+
+def test_zone_with_inadequate_time_left():
+    zone = Zone('10:00', '10:15', ['Work'])
+    task = Task('test task', ['Work'], '20min')
+    assert zone.fits(task) == False
+    assert zone.add(task) == False
+    assert zone.tasks == []
+    assert zone.current_time == dt.datetime.strptime('10:00', '%H:%M').time()

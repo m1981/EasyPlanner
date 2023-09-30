@@ -1,37 +1,84 @@
-# test_day.py
 import pytest
-from app.models.task import Task
-from app.models.zone import Zone
-from app.models.day import Day
-from datetime import datetime as dt
+from modules.day import Day, Task, Zone
+import logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(message)s"
+)
 
-class TestDay:
-    @pytest.fixture(autouse=True)
-    def setup_method(self):
-        zones = [
-            Zone("10:00", "11:00", "label1"),
-            Zone("17:00", "21:00", "label2")
-        ]
-        self.day = Day(zones, "2022-07-03")
+logger = logging.getLogger(__name__)
 
-        # Define tasks
-        self.task1 = Task("task1", "label1", 60)
-        self.task2 = Task("task2", "label2", 60)
+def test_task_order():
+    zone_definition = {"start": "10:00", "end": "23:00", "label": "ForMyself😎"}
+    day = Day([zone_definition], "Monday")
 
-    def test_add_task(self):
-        # Test that a task that fits the zones can be added
-        result = self.day.add_task(self.task1)
-        assert result
-        # Test add
-        result = self.day.add_task(self.task2)
-        assert result
+    # Create and add task1
+    task1 = Task('Task1', ['ForMyself😎'], '30min')
+    result = day.add_task(task1)
+    assert result, f"Failed to add task {task1.title} to Day."
+    
+    # Checking the state after adding task1
+    logger.log(day)  # Assuming you have a __str__ or __repr__ method in Day for pretty print
 
-        # Test that a task that doesn't fit but has correct label can't be added
-        task3 = Task("task3", "label1", 300)
-        result = self.day.add_task(task3)
-        assert not result  # should not have been added because duration is too long for any zone
+    # Create and add task2
+    task2 = Task('Task2', ['ForMyself😎'], '30min')
+    result = day.add_task(task2)
+    assert result, f"Failed to add task {task2.title} to Day."
+    
+    # Checking the state after adding task2
+    print(day)
 
-        # Test that a task with wrong label can't be added 
-        task4 = Task("task4", "label3", 30)
-        result = self.day.add_task(task4)
-        assert not result  # should not have been added because label is incorrect for any zone
+    assert day.zones[0].tasks[0] == task1, "Task order incorrect. Task1 is not at position 0."
+    assert day.zones[0].tasks[1] == task2, "Task order incorrect. Task2 is not at position 1."
+
+
+
+# Test if tasks with correct label can be added
+def test_add_task_correct_label():
+    task = Task('Test Task', ['ForMyself😎'], '30min')  # Notice the change here
+    zone_definition = {"start": "10:00", "end": "23:00", "label": "ForMyself😎"}
+    day = Day([zone_definition], "Monday")
+    assert day.add_task(task) is True
+
+
+# Test if tasks are not added when labels are incorrect
+def test_add_task_incorrect_label():
+    task = Task('Test Task', ['IncorrectLabel'], '30min')
+    zone_definition = {"start": "10:00", "end": "23:00", "label": "ForMyself😎"}
+    day = Day([zone_definition], "Monday")
+    assert day.add_task(task) is False
+    assert len(day.zones[0].tasks) == 0
+
+# Test if tasks are added in correct order
+def test_task_order():
+    zone_definition = {"start": "10:00", "end": "23:00", "label": "ForMyself😎"}
+    day = Day([zone_definition], "Monday")
+    
+    # Create and add task1
+    task1 = Task('Task1', ['ForMyself😎'], '30min')
+    day.add_task(task1)
+
+    # Create and add task2
+    task2 = Task('Task2', ['ForMyself😎'], '30min')
+    day.add_task(task2)
+    
+    # Check the order of tasks added to the first zone for the day
+    assert day.zones[0].tasks[0] == task1
+    assert day.zones[0].tasks[1] == task2
+
+
+# Test if tasks with a label not matching any zone are not added
+def test_add_task_no_matching_zone():
+    task = Task('Test Task', ['NonExistentZone'], '30min')
+    zone_definition = {"start": "10:00", "end": "23:00", "label": "ForMyself😎"}
+    day = Day([zone_definition], "Monday")
+    assert day.add_task(task) is False
+    assert len(day.zones[0].tasks) == 0
+
+# Test if tasks are not added to a day with no zones
+def test_add_task_no_zones():
+    task = Task('Test Task', ['ForMyself😎'], '30min')
+    day = Day([], "Monday")  # No zones defined for this day
+    assert day.add_task(task) is False
+
+

@@ -17,105 +17,6 @@ app = Flask(__name__)
 API_KEY = "583cd2d37748348ee7173e1e32307ccfd4b4ed31"
 
 
-class Task:
-
-  def __init__(self, title, label, duration):
-    self.title = title
-    self.label = label
-    self.duration = int(duration[:-3]) if duration else 30
-    # Additional properties for scheduling detail
-    self.scheduled_date = None
-    self.scheduled_start = None
-    logger.debug(
-      f'Creating task with label {self.label} and duration {self.duration} minutes'
-    )
-
-  def set_scheduled_detail(self, date, start):
-    self.scheduled_date = date
-    self.scheduled_start = start
-
-  def __repr__(self):
-      return f"{self.title} ({self.duration} min at {self.scheduled_start} on {self.scheduled_date})"
-  
-
-class Zone:
-  def __init__(self, start, end, label, schedule_date=None):
-      self.start = start
-      self.end = end
-      self.label = label
-      self.tasks = []
-      self.remaining_mins = self._calculate_total_time()
-      self.schedule_date = schedule_date
-      logger.debug(
-          f'Creating zone starting at {self.start}, ending at {self.end} for label {self.label}'
-      )
-
-  def __repr__(self):
-    return f"\n{self.label} from {self.start} to {self.end} with {len(self.tasks)} tasks: {self.tasks}"
-
-  def _calculate_total_time(self):
-    start_time = [int(i) for i in self.start.split(":")]
-    end_time = [int(i) for i in self.end.split(":")]
-    return ((end_time[0] * 60 + end_time[1]) -
-            (start_time[0] * 60 + start_time[1]))
-  
-  def add(self, task):
-      original_start = self.start  # Storing the original start time
-  
-      fits = self.fits(task)
-      if not fits:
-          self.start = original_start  # Revert back to the original start if it doesn't fit
-          return False
-  
-      self.tasks.append(task)
-      self.remaining_mins -= task.duration
-      task.set_scheduled_detail(self.schedule_date, original_start)
-  
-      # Only update the real start time by task's duration when it fits in the zone
-      hour, minute = self.start.split(':')
-      new_time = int(minute) + task.duration
-      if new_time >= 60:
-          new_time -= 60
-          hour = int(hour) + 1
-      self.start = f'{hour}:{new_time:02d}'
-  
-      return True
-
-  
-  def fits(self, task):
-      hour, minute = self.start.split(':')
-      end_hour, end_minute = self.end.split(':')
-      new_time = int(minute) + task.duration
-      if new_time >= 60:
-          new_time -= 60
-          hour = int(hour) + 1
-      # If the task does not exceed the zone time and matches the label
-      # Include task duration when comparing times
-      return task.label == self.label and not (int(hour) > int(end_hour)
-          or (int(hour) == int(end_hour) and new_time > int(end_minute)))
-
-class Day:
-  def __repr__(self):
-    return f"\nZones for day {self.zones[0].schedule_date} are: {self.zones}"
-    
-  def __init__(self, zones, schedule_date):
-    self.zones = [Zone(**z, schedule_date=schedule_date) for z in zones]
-    self.zones.sort(key=lambda x: x.start)
-
-  def add_task(self, task):
-    for zone in self.zones:
-      if zone.add(task):
-        logger.debug(
-          f'Task added task to the day\'s zone. {task.label}, {task.duration} min'
-        )
-        return True
-    logger.debug(
-      f'Task not added. {task.title}, {task.duration} min, {zone}'
-    )
-
-    return False
-
-
 
 from collections import deque
 
@@ -248,7 +149,6 @@ zones = {
 def index():
   api = TodoistAPI(API_KEY)
   projects = api.get_projects()
-  print(projects)
   return render_template('index.html', projects=projects)
 
 
@@ -284,7 +184,6 @@ def get_tasks_for_project(project_id):
       for label in labels:
         if isinstance(label, str) and label in ['10min', '30min', '60min']:
           task_dict["duration"] = label
-    print(task_dict)
     tasks_for_project.append(task_dict)
   return jsonify({"tasks": tasks_for_project})
 
